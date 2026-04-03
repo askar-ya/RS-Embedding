@@ -19,7 +19,7 @@ results_lock = threading.Lock()
 
 # Глобальные переменные для модели
 model = None
-tokenizer = None
+access_token = os.getenv('EmbeddingToken')
 token = os.getenv('TOKEN')
 
 def load_model():
@@ -40,7 +40,9 @@ def worker():
 
         try:
             # Генерация ответа
+            #model = SentenceTransformer("ai-forever/FRIDA", token=token)
             embedding = model.encode(prompt, prompt_name="search_document")
+            embedding = embedding.tolist()
 
             # Сохраняем результат с блокировкой
             with results_lock:
@@ -62,7 +64,14 @@ def worker():
 @app.route('/ask', methods=['POST'])
 def ask():
     """API endpoint для отправки запросов и получения ответов"""
+
     data = request.json
+    if 'token' not in data:
+        return jsonify({'error': 'access error'}), 403
+    user_token = data['token']
+    if user_token != access_token:
+        return jsonify({'error': 'access error'}), 403
+
     prompt = data.get('prompt', '')
     request_id = data.get('request_id', f'req-{int(time.time() * 1000)}')
 
@@ -73,7 +82,7 @@ def ask():
     request_queue.put((request_id, prompt, event))
 
     # Ждём завершения обработки (с таймаутом)
-    if event.wait(timeout=30):  # Таймаут 30 секунд
+    if event.wait(timeout=300):  # Таймаут 30 секунд
         # Получаем результат с блокировкой
         with results_lock:
             result = results.get(request_id, {})
@@ -85,7 +94,7 @@ def ask():
             return jsonify({
                 'status': 'success',
                 'request_id': request_id,
-                'response': str(result['response'])
+                'response': result['response']
             })
         else:
             return jsonify({
